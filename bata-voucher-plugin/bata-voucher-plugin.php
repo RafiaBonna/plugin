@@ -2,7 +2,7 @@
 /*
 Plugin Name: Bata Voucher Plugin
 Description: A plugin to create a voucher section with products for a WooCommerce store.
-Version: 1.0
+Version: 1.1
 Author: Rafia
 Author URI: https://rafiabonna.top
 Text Domain: bata-voucher-plugin
@@ -14,8 +14,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // Enqueue styles and scripts
 function enqueue_bata_voucher_assets() {
-    wp_enqueue_style('bata-voucher-style', plugin_dir_url(__FILE__) . 'assets/css/style.css', [], '1.0');
-    wp_enqueue_script('bata-voucher-script', plugin_dir_url(__FILE__) . 'assets/js/script.js', ['jquery'], '1.0', true);
+    wp_enqueue_style('bata-voucher-style', plugin_dir_url(__FILE__) . 'assets/css/style.css', [], '1.1');
+    wp_enqueue_script('bata-voucher-script', plugin_dir_url(__FILE__) . 'assets/js/script.js', ['jquery'], '1.1', true);
 
     wp_localize_script('bata-voucher-script', 'bataVoucher', [
         'ajax_url' => admin_url('admin-ajax.php')
@@ -23,35 +23,33 @@ function enqueue_bata_voucher_assets() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_bata_voucher_assets');
 
-// Register Custom Post Type for Vouchers
-function bata_voucher_cpt() {
-    $labels = [
-        'name'          => 'Vouchers',
-        'singular_name' => 'Voucher',
-        'add_new_item'  => 'Add New Voucher',
-        'edit_item'     => 'Edit Voucher',
-        'new_item'      => 'New Voucher',
-        'view_item'     => 'View Voucher',
-    ];
+// Add custom field to product page
+function add_voucher_value_field() {
     $args = [
-        'labels'      => $labels,
-        'public'      => true,
-        'has_archive' => true,
-        'menu_icon'   => 'dashicons-tagcloud',
-        'supports'    => ['title', 'editor', 'thumbnail'],
+        'id'            => 'bata_voucher_value',
+        'label'         => __('Voucher Value (TK)', 'bata-voucher-plugin'),
+        'class'         => 'bata-voucher-value-class',
+        'desc_tip'      => true,
+        'description'   => __('Enter the value of the voucher to be displayed on the product.', 'bata-voucher-plugin'),
     ];
-    register_post_type('voucher', $args);
+    woocommerce_wp_text_input($args);
 }
-add_action('init', 'bata_voucher_cpt');
+add_action('woocommerce_product_options_general_product_data', 'add_voucher_value_field');
+
+// Save the custom field
+function save_voucher_value_field($post_id) {
+    $voucher_value = isset($_POST['bata_voucher_value']) ? sanitize_text_field($_POST['bata_voucher_value']) : '';
+    update_post_meta($post_id, 'bata_voucher_value', $voucher_value);
+}
+add_action('woocommerce_process_product_meta', 'save_voucher_value_field');
 
 /**
  * Shortcode to display a voucher banner on any page.
  * Example usage: [bata_voucher_banner link_to_page="voucher-products" image="https://example.com/your-image.jpg"]
- * 'link_to_page' should be the slug of the page where products are displayed.
  */
 function bata_voucher_banner_shortcode($atts) {
     $atts = shortcode_atts([
-        'title' => '', // এখানে ডিফল্ট মান ফাঁকা করা হয়েছে
+        'title' => '',
         'link_to_page' => '',
         'image' => ''
     ], $atts, 'bata_voucher_banner');
@@ -85,15 +83,14 @@ function bata_voucher_products_shortcode() {
     ?>
     <div class="products-container">
         <?php
-        // Fetch products based on a specific category slug
         $args = [
             'post_type'      => 'product',
             'posts_per_page' => -1,
-            'tax_query'      => [
+            'meta_query'     => [
                 [
-                    'taxonomy' => 'product_cat',
-                    'field'    => 'slug',
-                    'terms'    => 'voucher-products', // The dedicated category slug
+                    'key'     => 'bata_voucher_value',
+                    'value'   => '',
+                    'compare' => '!=',
                 ],
             ],
         ];
@@ -103,9 +100,17 @@ function bata_voucher_products_shortcode() {
         if ($products->have_posts()) :
             while ($products->have_posts()) : $products->the_post();
                 global $product;
+                $voucher_value = get_post_meta($product->get_id(), 'bata_voucher_value', true);
                 ?>
                 <div class="product-item">
-                    <?php echo $product->get_image(); ?>
+                    <div class="voucher-product-image">
+                        <?php echo $product->get_image(); ?>
+                        <?php if (!empty($voucher_value)) : ?>
+                            <div class="voucher-overlay">
+                                <h3><?php echo esc_html($voucher_value); ?> TK.</h3>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                     <h4><?php echo $product->get_name(); ?></h4>
                     <p><?php echo $product->get_price_html(); ?></p>
                     <button class="add-to-cart-btn" data-product-id="<?php echo $product->get_id(); ?>">Add to Cart</button>
@@ -113,7 +118,7 @@ function bata_voucher_products_shortcode() {
                 <?php
             endwhile;
         else :
-            echo '<p>No products found for this voucher.</p>';
+            echo '<p>No products with voucher offers found.</p>';
         endif;
         wp_reset_postdata();
         ?>
